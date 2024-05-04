@@ -5,20 +5,19 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"os"
 	"path/filepath"
+	"runtime/pprof"
 	"time"
 )
 
 type ACO struct {
-	alpha       float64
-	beta        float64
-	evaporation float64
-	ants        int
-	iterations  int
-	pheromone   [][]float64
-	distances   [][]int
-	bestLength  float64
-	bestPath    []int
+	alpha, beta, evaporation float64
+	ants, iterations         int
+	pheromone                [][]float64
+	distances                [][]int
+	bestLength               float64
+	bestPath                 []int
 }
 
 func NewACO(alpha, beta, evaporation float64, ants, iterations int, distances [][]int) *ACO {
@@ -28,6 +27,15 @@ func NewACO(alpha, beta, evaporation float64, ants, iterations int, distances []
 		pheromone[i] = make([]float64, dimension)
 		for j := range pheromone[i] {
 			pheromone[i][j] = 1.0 // initial pheromone level
+		}
+	}
+
+	// Changing impossible paths to MaxInt simplifies things a lot.
+	for i := 0; i < dimension; i++ {
+		for j := 0; j < dimension; j++ {
+			if distances[i][j] == 0 {
+				distances[i][j] = math.MaxInt
+			}
 		}
 	}
 
@@ -45,21 +53,24 @@ func NewACO(alpha, beta, evaporation float64, ants, iterations int, distances []
 
 func (aco *ACO) Run() {
 	rand.Seed(time.Now().UnixNano())
+
 	for i := 0; i < aco.iterations; i++ {
 		paths := make([][]int, aco.ants)
 		lengths := make([]float64, aco.ants)
+
 		for j := 0; j < aco.ants; j++ {
-			paths[j], lengths[j] = aco.constructPath()
+			paths[j], lengths[j] = aco.constructPath(j)
 		}
+
 		aco.updatePheromone(paths, lengths)
 	}
 }
 
-func (aco *ACO) constructPath() ([]int, float64) {
+func (aco *ACO) constructPath(antNumber int) ([]int, float64) {
 	dimension := len(aco.distances)
 	path := make([]int, dimension)
 	visited := make([]bool, dimension)
-	current := rand.Intn(dimension)
+	current := antNumber % dimension
 	path[0] = current
 	visited[current] = true
 
@@ -75,7 +86,53 @@ func (aco *ACO) constructPath() ([]int, float64) {
 		aco.bestLength = length
 		aco.bestPath = append([]int(nil), path...)
 	}
+
 	return path, length
+}
+
+func pow(base, exp float64) float64 {
+	switch exp {
+	case 0.25:
+		return math.Sqrt(math.Sqrt(base)) // Fourth root
+	case 0.5:
+		return math.Sqrt(base) // Square root
+	case 0.75:
+		return math.Sqrt(base) * math.Sqrt(math.Sqrt(base)) // Square root of square root times square root
+	case 1.25:
+		return base * math.Sqrt(math.Sqrt(base)) // Base times fourth root
+	case 1.5:
+		return base * math.Sqrt(base) // Base times square root
+	case 1.75:
+		return base * math.Sqrt(base) * math.Sqrt(math.Sqrt(base)) // Base times square root of square root times square root
+	case 2:
+		return base * base // Square
+	case 2.25:
+		return base * base * math.Sqrt(math.Sqrt(base)) // Square times fourth root
+	case 2.5:
+		return base * base * math.Sqrt(base) // Square times square root
+	case 2.75:
+		return base * base * math.Sqrt(base) * math.Sqrt(math.Sqrt(base)) // Square times square root of square root times square root
+	case 3:
+		return base * base * base // Cube
+	case 3.25:
+		return base * base * base * math.Sqrt(math.Sqrt(base)) // Cube times fourth root
+	case 3.5:
+		return base * base * base * math.Sqrt(base) // Cube times square root
+	case 3.75:
+		return base * base * base * math.Sqrt(base) * math.Sqrt(math.Sqrt(base)) // Cube times square root of square root times square root
+	case 4:
+		return base * base * base * base // Fourth power
+	case 4.25:
+		return base * base * base * base * math.Sqrt(math.Sqrt(base)) // Fourth power times fourth root
+	case 4.5:
+		return base * base * base * base * math.Sqrt(base) // Fourth power times square root
+	case 4.75:
+		return base * base * base * base * math.Sqrt(base) * math.Sqrt(math.Sqrt(base)) // Fourth power times square root of square root times square root
+	case 5:
+		return base * base * base * base * base // Fifth power
+	default:
+		return math.Pow(base, exp) // Fallback for other exponents
+	}
 }
 
 func (aco *ACO) selectNextCity(current int, visited []bool) int {
@@ -85,25 +142,20 @@ func (aco *ACO) selectNextCity(current int, visited []bool) int {
 
 	for i := 0; i < dimension; i++ {
 		if !visited[i] {
-			pheromone := math.Pow(aco.pheromone[current][i], aco.alpha)
+			pheromone := pow(aco.pheromone[current][i], aco.alpha)
 			invDistance := 1.0 / float64(aco.distances[current][i])
-			desirability := math.Pow(invDistance, aco.beta)
+			desirability := pow(invDistance, aco.beta)
 			probabilities[i] = pheromone * desirability
 			total += probabilities[i]
 		}
 	}
 
-	for i := 0; i < dimension; i++ {
+	r := rand.Float64()
+	for i, cummulativeProbability := 0, 0.0; i < dimension; i++ {
 		if !visited[i] {
 			probabilities[i] /= total
-		}
-	}
-
-	r := rand.Float64()
-	for i, cum := 0, 0.0; i < dimension; i++ {
-		if !visited[i] {
-			cum += probabilities[i]
-			if r < cum {
+			cummulativeProbability += probabilities[i]
+			if r < cummulativeProbability {
 				return i
 			}
 		}
@@ -133,13 +185,29 @@ func (aco *ACO) updatePheromone(paths [][]int, lengths []float64) {
 
 func (aco *ACO) pathLength(path []int) float64 {
 	sum := 0.0
-	for i := 0; i < len(path)-1; i++ {
-		sum += float64(aco.distances[path[i]][path[i+1]])
+
+	p := len(path)
+
+	for i := 0; i < p; i++ {
+		sum += float64(aco.distances[path[i]][path[(i+1)%p]])
 	}
 	return sum
 }
 
+func startProfiling() {
+	// Start profiling
+	f, err := os.Create("aco.prof")
+	if err != nil {
+
+		fmt.Println(err)
+		return
+	}
+	pprof.StartCPUProfile(f)
+	defer pprof.StopCPUProfile()
+}
+
 func main() {
+
 	// Define the directory containing the TSP files
 	dir := "tsp_files"
 
@@ -156,22 +224,57 @@ func main() {
 		return
 	}
 
+	optimalSolutions := map[string]float64{
+		"br17":   39,
+		"ft53":   6905,
+		"ft70":   38673,
+		"ftv33":  1286,
+		"ftv35":  1473,
+		"ftv38":  1530,
+		"ftv44":  1613,
+		"ftv47":  1776,
+		"ftv55":  1608,
+		"ftv64":  1839,
+		"ftv70":  1950,
+		"ftv170": 2755,
+		"p43":    5620,
+		"rbg323": 1326,
+		"rbg358": 1163,
+		"rbg403": 2465,
+		"rbg443": 2720,
+		"ry48p":  14422,
+	}
+
+	fmt.Println("| Name | Dimension | Ants | Found Result | Known Optimal | Deviation (%) | Time (ms) |")
+	fmt.Println("|-|-|-|-|-|-|")
+
 	// Process each file
 	for _, file := range files {
-		fmt.Println("Processing file:", file)
-		name, dimension, distances, err := parsing.ParseTSPLIBFile(file)
-		if err != nil {
-			fmt.Println("Error parsing file:", file, err)
-			continue
+
+		//if strings.Contains(file, "ft70")
+		{
+			name, dimension, matrix, err := parsing.ParseTSPLIBFile(file)
+			if err != nil {
+				fmt.Println("Error parsing file:", file, err)
+				continue
+			}
+
+			alfa := 2.0
+			beta := 1.0
+			evaporation := 0.5
+			ants := dimension
+			iterations := 100
+
+			aco := NewACO(alfa, beta, evaporation, ants, iterations, matrix)
+			start := time.Now()
+			aco.Run()
+			elapsed := time.Since(start)
+
+			knownOptimal := optimalSolutions[name]
+
+			deviation := 100 * (aco.bestLength - knownOptimal) / knownOptimal
+
+			fmt.Printf("| %s | %d | %d | %.0f | %.0f | %.2f | %v |\n", name, dimension, ants, aco.bestLength, knownOptimal, deviation, elapsed.Milliseconds())
 		}
-
-		fmt.Println("Name:", name)
-		fmt.Println("Dimension:", dimension)
-
-		aco := NewACO(1.0, 5.0, 0.5, 20, 100, distances)
-		aco.Run()
-
-		fmt.Println("Best Path Length for", name, ":", aco.bestLength)
-		fmt.Println("Best Path for", name, ":", aco.bestPath)
 	}
 }

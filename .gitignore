@@ -21,3 +21,6 @@
 go.work
 
 tsp_files/*
+.DS_Store
+aco.prof
+atsp_aco

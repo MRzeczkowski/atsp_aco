@@ -12,37 +12,26 @@ import (
 )
 
 type ACO struct {
-	alpha, beta, evaporation float64
-	ants, iterations         int
-	pheromone                [][]float64
-	distances                [][]int
-	bestLength               float64
-	bestPath                 []int
+	alpha, beta, evaporation, q float64
+	ants, iterations            int
+	pheromone                   [][]float64
+	distances                   [][]int
+	bestLength                  float64
+	bestPath                    []int
 }
 
-func NewACO(alpha, beta, evaporation float64, ants, iterations int, distances [][]int) *ACO {
+func NewACO(alpha, beta, evaporation, q float64, ants, iterations int, distances [][]int) *ACO {
 	dimension := len(distances)
 	pheromone := make([][]float64, dimension)
 	for i := range pheromone {
 		pheromone[i] = make([]float64, dimension)
-		for j := range pheromone[i] {
-			pheromone[i][j] = 1.0 // initial pheromone level
-		}
-	}
-
-	// Changing impossible paths to MaxInt simplifies things a lot.
-	for i := 0; i < dimension; i++ {
-		for j := 0; j < dimension; j++ {
-			if distances[i][j] == 0 {
-				distances[i][j] = math.MaxInt
-			}
-		}
 	}
 
 	return &ACO{
 		alpha:       alpha,
 		beta:        beta,
 		evaporation: evaporation,
+		q:           q,
 		ants:        ants,
 		iterations:  iterations,
 		pheromone:   pheromone,
@@ -52,7 +41,6 @@ func NewACO(alpha, beta, evaporation float64, ants, iterations int, distances []
 }
 
 func (aco *ACO) Run() {
-	rand.Seed(time.Now().UnixNano())
 
 	for i := 0; i < aco.iterations; i++ {
 		paths := make([][]int, aco.ants)
@@ -98,6 +86,8 @@ func pow(base, exp float64) float64 {
 		return math.Sqrt(base) // Square root
 	case 0.75:
 		return math.Sqrt(base) * math.Sqrt(math.Sqrt(base)) // Square root of square root times square root
+	case 1:
+		return base
 	case 1.25:
 		return base * math.Sqrt(math.Sqrt(base)) // Base times fourth root
 	case 1.5:
@@ -142,6 +132,19 @@ func (aco *ACO) selectNextCity(current int, visited []bool) int {
 
 	for i := 0; i < dimension; i++ {
 		if !visited[i] {
+
+			// https://ieeexplore.ieee.org/document/6972311
+			if aco.pheromone[current][i] == 0 {
+				sum := 0
+				for j := 0; j < dimension; j++ {
+					if j != current {
+						sum += aco.distances[current][j]
+					}
+				}
+
+				aco.pheromone[current][i] = 1 / float64(sum)
+			}
+
 			pheromone := pow(aco.pheromone[current][i], aco.alpha)
 			invDistance := 1.0 / float64(aco.distances[current][i])
 			desirability := pow(invDistance, aco.beta)
@@ -151,46 +154,61 @@ func (aco *ACO) selectNextCity(current int, visited []bool) int {
 	}
 
 	r := rand.Float64()
-	for i, cummulativeProbability := 0, 0.0; i < dimension; i++ {
+	for i, cumulativeProbability := 0, 0.0; i < dimension; i++ {
 		if !visited[i] {
 			probabilities[i] /= total
-			cummulativeProbability += probabilities[i]
-			if r < cummulativeProbability {
+			cumulativeProbability += probabilities[i]
+			if r < cumulativeProbability || math.IsNaN(probabilities[i]) {
 				return i
 			}
 		}
 	}
 
-	return -1 // fallback, should not happen
+	return -1 // Fallback, should not happen
 }
 
 func (aco *ACO) updatePheromone(paths [][]int, lengths []float64) {
-	for i, path := range paths {
-		for j := 0; j < len(path)-1; j++ {
-			start, end := path[j], path[j+1]
-			// Increase pheromone level for this path
-			delta := 1 / lengths[i]
-			aco.pheromone[start][end] += delta
-			aco.pheromone[end][start] += delta // if symmetric TSP
-		}
-	}
 
-	// Evaporate pheromone
+	// Evaporate pheromone first
 	for i := range aco.pheromone {
 		for j := range aco.pheromone[i] {
 			aco.pheromone[i][j] *= (1 - aco.evaporation)
+		}
+	}
+
+	for i, path := range paths {
+		p := len(path)
+
+		delta := aco.q / lengths[i]
+
+		for j := 0; j < p-1; j++ {
+			start, end := path[j], path[j+1]
+			aco.pheromone[start][end] += delta
+		}
+
+		// Handle the wrap-around from the last to the first node separately
+		if p > 0 {
+			last, first := path[p-1], path[0]
+			aco.pheromone[last][first] += delta
 		}
 	}
 }
 
 func (aco *ACO) pathLength(path []int) float64 {
 	sum := 0.0
-
 	p := len(path)
 
-	for i := 0; i < p; i++ {
-		sum += float64(aco.distances[path[i]][path[(i+1)%p]])
+	for i := 0; i < p-1; i++ {
+		start, end := path[i], path[i+1]
+		sum += float64(aco.distances[start][end])
 	}
+
+	// Handle the wrap-around from the last node back to the first node
+	if p > 0 {
+		last, first := path[p-1], path[0]
+		sum += float64(aco.distances[last][first])
+	}
+
 	return sum
 }
 
@@ -251,7 +269,7 @@ func main() {
 	// Process each file
 	for _, file := range files {
 
-		//if strings.Contains(file, "ft70")
+		//if strings.Contains(file, "ft53")
 		{
 			name, dimension, matrix, err := parsing.ParseTSPLIBFile(file)
 			if err != nil {
@@ -259,13 +277,14 @@ func main() {
 				continue
 			}
 
-			alfa := 2.0
-			beta := 1.0
-			evaporation := 0.5
+			alpha := 1.0
+			beta := 3.0
+			evaporation := 0.3
+			q := 100.0
 			ants := dimension
 			iterations := 100
 
-			aco := NewACO(alfa, beta, evaporation, ants, iterations, matrix)
+			aco := NewACO(alpha, beta, evaporation, q, ants, iterations, matrix)
 			start := time.Now()
 			aco.Run()
 			elapsed := time.Since(start)

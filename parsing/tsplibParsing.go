@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-func ParseTSPLIBFile(filename string) (name string, dimension int, matrix [][]int, err error) {
+func ParseTSPLIBFile(filename string) (name string, dimension int, matrix [][]float64, err error) {
 	file, err := os.Open(filename)
 	if err != nil {
 		return "", 0, nil, err
@@ -19,7 +19,7 @@ func ParseTSPLIBFile(filename string) (name string, dimension int, matrix [][]in
 	readMatrix := false
 
 	// Initialize variables to keep track of matrix data as it's read
-	var valuesInMatrix []int
+	var valuesInMatrix []float64
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -38,9 +38,9 @@ func ParseTSPLIBFile(filename string) (name string, dimension int, matrix [][]in
 			if err != nil {
 				return "", 0, nil, err
 			}
-			matrix = make([][]int, dimension)
+			matrix = make([][]float64, dimension)
 			for i := range matrix {
-				matrix[i] = make([]int, dimension)
+				matrix[i] = make([]float64, dimension)
 			}
 		}
 
@@ -48,7 +48,7 @@ func ParseTSPLIBFile(filename string) (name string, dimension int, matrix [][]in
 			// Add to a continuous list of values
 			rowValues := strings.Fields(line)
 			for _, val := range rowValues {
-				num, err := strconv.Atoi(val)
+				num, err := strconv.ParseFloat(val, 64)
 				if err != nil {
 					return "", 0, nil, err
 				}

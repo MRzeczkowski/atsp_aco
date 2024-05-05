@@ -12,15 +12,14 @@ import (
 )
 
 type ACO struct {
-	alpha, beta, evaporation, q float64
-	ants, iterations            int
-	pheromone                   [][]float64
-	distances                   [][]int
-	bestLength                  float64
-	bestPath                    []int
+	alpha, beta, evaporation, q        float64
+	ants, iterations, currentIteration int
+	distances, pheromone, mst          [][]float64
+	bestLength                         float64
+	bestPath                           []int
 }
 
-func NewACO(alpha, beta, evaporation, q float64, ants, iterations int, distances [][]int) *ACO {
+func NewACO(alpha, beta, evaporation, q float64, ants, iterations int, distances [][]float64) *ACO {
 	dimension := len(distances)
 	pheromone := make([][]float64, dimension)
 	for i := range pheromone {
@@ -34,24 +33,84 @@ func NewACO(alpha, beta, evaporation, q float64, ants, iterations int, distances
 		q:           q,
 		ants:        ants,
 		iterations:  iterations,
-		pheromone:   pheromone,
 		distances:   distances,
+		pheromone:   pheromone,
 		bestLength:  math.Inf(1),
 	}
 }
 
 func (aco *ACO) Run() {
 
-	for i := 0; i < aco.iterations; i++ {
+	// https://ieeexplore.ieee.org/document/5522700
+	aco.mst = aco.constructMST()
+
+	for aco.currentIteration = 0; aco.currentIteration < aco.iterations; aco.currentIteration++ {
 		paths := make([][]int, aco.ants)
 		lengths := make([]float64, aco.ants)
 
-		for j := 0; j < aco.ants; j++ {
-			paths[j], lengths[j] = aco.constructPath(j)
+		for i := 0; i < aco.ants; i++ {
+			paths[i], lengths[i] = aco.constructPath(i)
 		}
 
 		aco.updatePheromone(paths, lengths)
 	}
+}
+
+func (aco *ACO) constructMST() [][]float64 {
+	dimension := len(aco.distances)
+	parent := make([]int, dimension)
+	key := make([]float64, dimension)
+	mstSet := make([]bool, dimension)
+
+	// Initialize keys to a very high value.
+	for i := 0; i < dimension; i++ {
+		key[i] = math.MaxFloat64
+	}
+	key[0] = 0     // Start MST from the first vertex
+	parent[0] = -1 // First node is the root of MST
+
+	for count := 0; count < dimension-1; count++ {
+		// Find the vertex with the minimum key that hasn't been added to MST.
+		u := minKey(key, mstSet)
+		mstSet[u] = true
+
+		// Update the key and parent for each vertex adjacent to u.
+		for v := 0; v < dimension; v++ {
+			// Include the edge if it's better than the current key and does not represent a blocked path.
+			if aco.distances[u][v] < key[v] {
+				parent[v] = u
+				key[v] = 1 // Use 1 to indicate the edge is part of the MST.
+			}
+		}
+	}
+
+	// Build the MST matrix with 1s and 0s.
+	mst := make([][]float64, dimension)
+	for i := range mst {
+		mst[i] = make([]float64, dimension)
+	}
+
+	for i := 1; i < dimension; i++ {
+		if parent[i] != -1 {
+			mst[parent[i]][i] = 1
+		}
+	}
+
+	return mst
+}
+
+// Helper function to find the vertex with minimum key value, from the set of vertices not yet included in MST
+func minKey(keys []float64, mstSet []bool) int {
+	min := math.MaxFloat64
+	minIndex := -1
+
+	for v := 0; v < len(keys); v++ {
+		if !mstSet[v] && keys[v] < min {
+			min = keys[v]
+			minIndex = v
+		}
+	}
+	return minIndex
 }
 
 func (aco *ACO) constructPath(antNumber int) ([]int, float64) {
@@ -64,6 +123,12 @@ func (aco *ACO) constructPath(antNumber int) ([]int, float64) {
 
 	for i := 1; i < dimension; i++ {
 		next := aco.selectNextCity(current, visited)
+
+		if next == -1 {
+			// This should not happen, not sure how handle it now if at all.
+			break
+		}
+
 		path[i] = next
 		visited[next] = true
 		current = next
@@ -130,19 +195,32 @@ func (aco *ACO) selectNextCity(current int, visited []bool) int {
 	probabilities := make([]float64, dimension)
 	total := 0.0
 
+	// Calculate q based on iteration number (decreasing over time)
+	adaptiveProbability := 0.5 * (1.0 - float64(aco.currentIteration)/float64(aco.iterations)) // Linearly decreasing
+
+	// Randomly choose between following the MST or ACO rules based on q
+	if rand.Float64() < adaptiveProbability {
+		// Check for available MST edges first
+		for i := 0; i < dimension; i++ {
+			if aco.mst[current][i] == 1 && !visited[i] {
+				return i // Choose MST edge with probability q
+			}
+		}
+	}
+
 	for i := 0; i < dimension; i++ {
 		if !visited[i] {
 
 			// https://ieeexplore.ieee.org/document/6972311
 			if aco.pheromone[current][i] == 0 {
-				sum := 0
+				sum := 0.0
 				for j := 0; j < dimension; j++ {
 					if j != current {
 						sum += aco.distances[current][j]
 					}
 				}
 
-				aco.pheromone[current][i] = 1 / float64(sum)
+				aco.pheromone[current][i] = 1 / sum
 			}
 
 			pheromone := pow(aco.pheromone[current][i], aco.alpha)
@@ -277,12 +355,13 @@ func main() {
 				continue
 			}
 
+			// https://ieeexplore.ieee.org/document/8820263
 			alpha := 1.0
 			beta := 3.0
 			evaporation := 0.3
 			q := 100.0
 			ants := dimension
-			iterations := 100
+			iterations := 10
 
 			aco := NewACO(alpha, beta, evaporation, q, ants, iterations, matrix)
 			start := time.Now()

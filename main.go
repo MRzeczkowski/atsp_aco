@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/pprof"
+	"strings"
 	"time"
 )
 
@@ -138,6 +139,7 @@ func (aco *ACO) constructPath(antNumber int) ([]int, float64) {
 	if length < aco.bestLength {
 		aco.bestLength = length
 		aco.bestPath = append([]int(nil), path...)
+		fmt.Printf("Iteration:%d; Ant:%d; %.0f;\n", aco.currentIteration, antNumber, aco.bestLength)
 	}
 
 	return path, length
@@ -195,15 +197,13 @@ func (aco *ACO) selectNextCity(current int, visited []bool) int {
 	probabilities := make([]float64, dimension)
 	total := 0.0
 
-	// Calculate q based on iteration number (decreasing over time)
-	adaptiveProbability := 0.5 * (1.0 - float64(aco.currentIteration)/float64(aco.iterations)) // Linearly decreasing
-
-	// Randomly choose between following the MST or ACO rules based on q
-	if rand.Float64() < adaptiveProbability {
-		// Check for available MST edges first
+	// This should make ants use better paths in the beginning.
+	// https://ieeexplore.ieee.org/document/5522700
+	adaptiveMstProbability := 0.5 * (1.0 - float64(aco.currentIteration)/float64(aco.iterations))
+	if rand.Float64() < adaptiveMstProbability {
 		for i := 0; i < dimension; i++ {
 			if aco.mst[current][i] == 1 && !visited[i] {
-				return i // Choose MST edge with probability q
+				return i
 			}
 		}
 	}
@@ -231,10 +231,15 @@ func (aco *ACO) selectNextCity(current int, visited []bool) int {
 		}
 	}
 
+	for i := 0; i < dimension; i++ {
+		if !visited[i] {
+			probabilities[i] /= total
+		}
+	}
+
 	r := rand.Float64()
 	for i, cumulativeProbability := 0, 0.0; i < dimension; i++ {
 		if !visited[i] {
-			probabilities[i] /= total
 			cumulativeProbability += probabilities[i]
 			if r < cumulativeProbability || math.IsNaN(probabilities[i]) {
 				return i
@@ -341,27 +346,38 @@ func main() {
 		"ry48p":  14422,
 	}
 
-	fmt.Println("| Name | Dimension | Ants | Found Result | Known Optimal | Deviation (%) | Time (ms) |")
-	fmt.Println("|-|-|-|-|-|-|")
+	fmt.Println("| Name | Iterations | Dimension | Ants | Found Result | Known Optimal | Deviation (%) | Time (ms) |")
+	fmt.Println("|-|-|-|-|-|-|-|")
 
 	// Process each file
 	for _, file := range files {
 
-		//if strings.Contains(file, "ft53")
-		{
+		if strings.Contains(file, "ft53") {
 			name, dimension, matrix, err := parsing.ParseTSPLIBFile(file)
 			if err != nil {
 				fmt.Println("Error parsing file:", file, err)
 				continue
 			}
 
+			// Parameters set in accordance to these articles:
 			// https://ieeexplore.ieee.org/document/8820263
-			alpha := 1.0
-			beta := 3.0
-			evaporation := 0.3
-			q := 100.0
-			ants := dimension
-			iterations := 10
+			// https://ieeexplore.ieee.org/document/5522700
+			alpha := 0.2
+			beta := 10.0
+			evaporation := 0.999
+			q := 1.0
+			ants := dimension //int(math.Ceil(float64(dimension) / 1.5))
+			var iterations int
+
+			if dimension <= 50 {
+				iterations = 100
+			}
+			if 50 < dimension && dimension <= 100 {
+				iterations = 100
+			}
+			if 100 < dimension {
+				iterations = 100
+			}
 
 			aco := NewACO(alpha, beta, evaporation, q, ants, iterations, matrix)
 			start := time.Now()
@@ -372,7 +388,8 @@ func main() {
 
 			deviation := 100 * (aco.bestLength - knownOptimal) / knownOptimal
 
-			fmt.Printf("| %s | %d | %d | %.0f | %.0f | %.2f | %v |\n", name, dimension, ants, aco.bestLength, knownOptimal, deviation, elapsed.Milliseconds())
+			fmt.Printf("| %s | %d | %d | %d | %.0f | %.0f | %.2f | %v |\n", name, iterations, dimension, ants, aco.bestLength, knownOptimal, deviation, elapsed.Milliseconds())
+			//fmt.Println(aco.bestPath)
 		}
 	}
 }

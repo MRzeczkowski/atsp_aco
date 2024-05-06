@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/pprof"
-	"strings"
 	"time"
 )
 
@@ -40,6 +39,65 @@ func NewACO(alpha, beta, evaporation, q float64, ants, iterations int, distances
 	}
 }
 
+func isSpanningTree(mst [][]float64) bool {
+	size := len(mst)
+	edges := 0
+	for i := 0; i < size; i++ {
+		for j := i + 1; j < size; j++ {
+			if mst[i][j] >= 1 {
+				edges++
+			}
+		}
+	}
+	return edges == size-1
+}
+
+func totalEdges(mst [][]float64) int {
+	size := len(mst)
+	edges := 0
+	for i := 0; i < size; i++ {
+		for j := i + 1; j < size; j++ {
+			edges += int(mst[i][j])
+		}
+	}
+	return edges
+}
+
+func totalWeight(mst [][]float64, distances [][]float64) float64 {
+	size := len(mst)
+	weight := 0.0
+	for i := 0; i < size; i++ {
+		for j := i + 1; j < size; j++ {
+			if mst[i][j] == 1 {
+				weight += distances[i][j]
+			}
+		}
+	}
+	return weight
+}
+
+func validateMST(mst [][]float64, distances [][]float64) bool {
+	size := len(mst)
+	if !isSpanningTree(mst) {
+		fmt.Println("The generated MST is not a spanning tree.")
+		return false
+	}
+
+	expectedEdges := size - 1
+	actualEdges := totalEdges(mst)
+	if actualEdges != expectedEdges {
+		fmt.Printf("The MST has %d edges instead of %d.\n", actualEdges, expectedEdges)
+		return false
+	}
+
+	expectedWeight := totalWeight(mst, distances)
+	if expectedWeight != 0 {
+		fmt.Println("The total weight of the MST is", expectedWeight)
+	}
+
+	return true
+}
+
 func (aco *ACO) Run() {
 
 	// https://ieeexplore.ieee.org/document/5522700
@@ -60,47 +118,41 @@ func (aco *ACO) Run() {
 func (aco *ACO) constructMST() [][]float64 {
 	dimension := len(aco.distances)
 	parent := make([]int, dimension)
-	key := make([]float64, dimension)
+	keys := make([]float64, dimension)
 	mstSet := make([]bool, dimension)
 
-	// Initialize keys to a very high value.
 	for i := 0; i < dimension; i++ {
-		key[i] = math.MaxFloat64
+		keys[i] = math.MaxFloat64
 	}
-	key[0] = 0     // Start MST from the first vertex
-	parent[0] = -1 // First node is the root of MST
+
+	keys[0] = 0
+	parent[0] = -1
 
 	for count := 0; count < dimension-1; count++ {
-		// Find the vertex with the minimum key that hasn't been added to MST.
-		u := minKey(key, mstSet)
+		u := minKey(keys, mstSet)
 		mstSet[u] = true
 
-		// Update the key and parent for each vertex adjacent to u.
 		for v := 0; v < dimension; v++ {
-			// Include the edge if it's better than the current key and does not represent a blocked path.
-			if aco.distances[u][v] < key[v] {
+			if !mstSet[v] && aco.distances[u][v] < keys[v] {
 				parent[v] = u
-				key[v] = 1 // Use 1 to indicate the edge is part of the MST.
+				keys[v] = aco.distances[u][v]
 			}
 		}
 	}
 
-	// Build the MST matrix with 1s and 0s.
 	mst := make([][]float64, dimension)
 	for i := range mst {
 		mst[i] = make([]float64, dimension)
 	}
 
 	for i := 1; i < dimension; i++ {
-		if parent[i] != -1 {
-			mst[parent[i]][i] = 1
-		}
+		mst[parent[i]][i] = 1
+		mst[i][parent[i]] = 1
 	}
 
 	return mst
 }
 
-// Helper function to find the vertex with minimum key value, from the set of vertices not yet included in MST
 func minKey(keys []float64, mstSet []bool) int {
 	min := math.MaxFloat64
 	minIndex := -1
@@ -111,6 +163,7 @@ func minKey(keys []float64, mstSet []bool) int {
 			minIndex = v
 		}
 	}
+
 	return minIndex
 }
 
@@ -139,7 +192,7 @@ func (aco *ACO) constructPath(antNumber int) ([]int, float64) {
 	if length < aco.bestLength {
 		aco.bestLength = length
 		aco.bestPath = append([]int(nil), path...)
-		fmt.Printf("Iteration:%d; Ant:%d; %.0f;\n", aco.currentIteration, antNumber, aco.bestLength)
+		//fmt.Printf("Iteration:%d; Ant:%d; %.0f;\n", aco.currentIteration, antNumber, aco.bestLength)
 	}
 
 	return path, length
@@ -352,7 +405,8 @@ func main() {
 	// Process each file
 	for _, file := range files {
 
-		if strings.Contains(file, "ft53") {
+		//if strings.Contains(file, "ft53")
+		{
 			name, dimension, matrix, err := parsing.ParseTSPLIBFile(file)
 			if err != nil {
 				fmt.Println("Error parsing file:", file, err)
@@ -362,9 +416,9 @@ func main() {
 			// Parameters set in accordance to these articles:
 			// https://ieeexplore.ieee.org/document/8820263
 			// https://ieeexplore.ieee.org/document/5522700
-			alpha := 0.2
-			beta := 10.0
-			evaporation := 0.999
+			alpha := 1.0
+			beta := 5.0
+			evaporation := 0.3
 			q := 1.0
 			ants := dimension //int(math.Ceil(float64(dimension) / 1.5))
 			var iterations int

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime/pprof"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -46,9 +47,15 @@ func (aco *ACO) Run() {
 		paths := make([][]int, aco.ants)
 		lengths := make([]float64, aco.ants)
 
+		var wg sync.WaitGroup
+		wg.Add(aco.ants)
 		for i := 0; i < aco.ants; i++ {
-			paths[i], lengths[i] = aco.constructPath(i)
+			go func(i int) {
+				paths[i], lengths[i] = aco.constructPath(i)
+				wg.Done()
+			}(i)
 		}
+		wg.Wait()
 
 		aco.updatePheromone(paths, lengths)
 	}

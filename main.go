@@ -14,33 +14,38 @@ import (
 )
 
 type ACO struct {
-	alpha, beta, evaporation, q        float64
-	ants, iterations, currentIteration int
-	distances, pheromone               [][]float64
-	bestLength                         float64
-	bestPath                           []int
+	alpha, beta, evaporation                float64
+	minPheromone, maxPheromone, exploration float64
+	ants, iterations, currentIteration      int
+	distances, pheromone                    [][]float64
+	bestLength                              float64
+	bestPath                                []int
 }
 
-func NewACO(alpha, beta, evaporation, q float64, ants, iterations int, distances [][]float64) *ACO {
+// NewACO initializes a new ACO instance with initial pheromone levels set to an estimated best value
+func NewACO(alpha, beta, evaporation, exploration float64, ants, iterations int, distances [][]float64) *ACO {
 	dimension := len(distances)
 	pheromone := make([][]float64, dimension)
+	initialPheromone := 1.0
 	for i := range pheromone {
 		pheromone[i] = make([]float64, dimension)
 		for j := range pheromone[i] {
-			pheromone[i][j] = 1.0
+			pheromone[i][j] = initialPheromone
 		}
 	}
 
 	return &ACO{
-		alpha:       alpha,
-		beta:        beta,
-		evaporation: evaporation,
-		q:           q,
-		ants:        ants,
-		iterations:  iterations,
-		distances:   distances,
-		pheromone:   pheromone,
-		bestLength:  math.Inf(1),
+		alpha:        alpha,
+		beta:         beta,
+		evaporation:  evaporation,
+		ants:         ants,
+		iterations:   iterations,
+		distances:    distances,
+		pheromone:    pheromone,
+		bestLength:   math.Inf(1),
+		maxPheromone: initialPheromone,
+		minPheromone: initialPheromone / (exploration * float64(ants)),
+		exploration:  exploration,
 	}
 }
 
@@ -59,8 +64,14 @@ func (aco *ACO) Run() {
 		}
 		wg.Wait()
 
+		aco.updatePheromoneLevels() // Recalculate pheromone limits based on the new best solution
 		aco.updatePheromone(paths, lengths)
 	}
+}
+
+func (aco *ACO) updatePheromoneLevels() {
+	aco.maxPheromone = 1.0 / ((1 - aco.evaporation) * aco.bestLength)
+	aco.minPheromone = aco.maxPheromone / (aco.exploration * float64(aco.ants))
 }
 
 func (aco *ACO) constructPath(antNumber int) ([]int, float64) {
@@ -167,27 +178,35 @@ func (aco *ACO) selectNextCity(current int, visited []bool) int {
 }
 
 func (aco *ACO) updatePheromone(paths [][]int, lengths []float64) {
-	for i := range aco.pheromone {
-		for j := range aco.pheromone[i] {
-			aco.pheromone[i][j] *= (1 - aco.evaporation)
+	// Find the best path of this iteration
+	bestIdx := 0
+	for i := 1; i < len(lengths); i++ {
+		if lengths[i] < lengths[bestIdx] {
+			bestIdx = i
 		}
 	}
 
-	for i, path := range paths {
-		p := len(path)
-
-		delta := aco.q / lengths[i]
-
-		for j := 0; j < p-1; j++ {
-			start, end := path[j], path[j+1]
-			aco.pheromone[start][end] += delta
+	// Evaporate pheromone first
+	for i := range aco.pheromone {
+		for j := range aco.pheromone[i] {
+			aco.pheromone[i][j] *= (1 - aco.evaporation)
+			aco.pheromone[i][j] = math.Max(aco.pheromone[i][j], aco.minPheromone) // Enforce minimum pheromone level
 		}
+	}
 
-		// Handle the wrap-around from the last to the first node separately
-		if p > 0 {
-			last, first := path[p-1], path[0]
-			aco.pheromone[last][first] += delta
-		}
+	// Strengthen pheromone trail for the best ant's path
+	path := paths[bestIdx]
+	delta := 1.0 / lengths[bestIdx]
+	for i := 0; i < len(path)-1; i++ {
+		start, end := path[i], path[i+1]
+		aco.pheromone[start][end] += delta
+		aco.pheromone[start][end] = math.Min(aco.pheromone[start][end], aco.maxPheromone) // Enforce maximum pheromone level
+	}
+
+	if len(path) > 0 {
+		last, first := path[len(path)-1], path[0]
+		aco.pheromone[last][first] += delta
+		aco.pheromone[last][first] = math.Min(aco.pheromone[last][first], aco.maxPheromone)
 	}
 }
 
@@ -252,11 +271,14 @@ func main() {
 		"ry48p":  14422,
 	}
 
-	fmt.Println("| Name | Iterations | Dimension | Ants | Found Result | Known Optimal | Deviation (%) | Time (ms) |")
-	fmt.Println("|-|-|-|-|-|-|-|")
+	fmt.Println("| Instance | Alpha | Beta | Evaporation | Exploration | Ants | Iterations | Found Result | Known Optimal | Deviation (%) | Time (ms) |")
+	fmt.Println("|-|-|-|-|-|-|-|-|-|-|-|")
 
 	for _, file := range files {
-			name, dimension, matrix, err := parsing.ParseTSPLIBFile(file)
+		name, dimension, matrix, err := parsing.ParseTSPLIBFile(file)
+
+		if strings.Contains(name, "ft53") {
+
 			if err != nil {
 				fmt.Println("Error parsing file:", file, err)
 				continue
@@ -265,21 +287,22 @@ func main() {
 			alpha := 1.0
 			beta := 5.0
 			evaporation := 0.3
-			q := 1.0
+			exploration := 10.0
 			ants := dimension
+
 			var iterations int
 
 			if dimension <= 50 {
-				iterations = 100
+				iterations = 1000
 			}
 			if 50 < dimension && dimension <= 100 {
-				iterations = 500
+				iterations = 1000
 			}
 			if 100 < dimension {
-				iterations = 5000
+				iterations = 1000
 			}
 
-			aco := NewACO(alpha, beta, evaporation, q, ants, iterations, matrix)
+			aco := NewACO(alpha, beta, evaporation, exploration, ants, iterations, matrix)
 			start := time.Now()
 			aco.Run()
 			elapsed := time.Since(start)
@@ -287,7 +310,7 @@ func main() {
 			knownOptimal := optimalSolutions[name]
 			deviation := 100 * (aco.bestLength - knownOptimal) / knownOptimal
 
-			fmt.Printf("| %s | %d | %d | %d | %.0f | %.0f | %.2f | %v |\n", name, iterations, dimension, ants, aco.bestLength, knownOptimal, deviation, elapsed.Milliseconds())
+			fmt.Printf("| %s | %.2f | %.2f | %.2f | %.2f | %d | %d | %.0f | %.0f | %.2f | %v |\n", name, alpha, beta, evaporation, exploration, ants, iterations, aco.bestLength, knownOptimal, deviation, elapsed.Milliseconds())
 		}
 	}
 }

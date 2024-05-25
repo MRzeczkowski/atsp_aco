@@ -251,6 +251,7 @@ var bestParams struct {
 	alpha, beta, evaporation, exploration float64
 	length                                float64
 	deviation                             float64
+	successRate                           float64
 }
 
 var optimalSolutions = map[string]float64{
@@ -284,6 +285,9 @@ func runExperiment(file string, iterations, numRuns int, alpha, beta, evaporatio
 
 	var totalBestLength float64
 	var totalElapsedTime time.Duration
+	successCounter := 0.0
+
+	knownOptimal := optimalSolutions[name]
 
 	ants := dimension
 
@@ -295,22 +299,27 @@ func runExperiment(file string, iterations, numRuns int, alpha, beta, evaporatio
 
 		totalBestLength += aco.bestLength
 		totalElapsedTime += elapsed
+
+		if aco.bestLength == knownOptimal {
+			successCounter++
+		}
 	}
 
 	averageBestLength := totalBestLength / float64(numRuns)
 	averageTime := totalElapsedTime / time.Duration(numRuns)
-	knownOptimal := optimalSolutions[name]
 	deviation := 100 * (averageBestLength - knownOptimal) / knownOptimal
+	successRate := successCounter / float64(numRuns)
 
 	if bestParams.length == 0 || averageBestLength < bestParams.length {
 		bestParams = struct {
 			alpha, beta, evaporation, exploration float64
 			length                                float64
 			deviation                             float64
-		}{alpha, beta, evaporation, exploration, averageBestLength, deviation}
+			successRate                           float64
+		}{alpha, beta, evaporation, exploration, averageBestLength, deviation, successRate}
 	}
 
-	fmt.Printf("| %s | %.2f | %.2f | %.2f | %.2f | %d | %d | %.0f | %.0f | %.2f | %v |\n", name, alpha, beta, evaporation, exploration, ants, iterations, averageBestLength, knownOptimal, deviation, averageTime.Milliseconds())
+	fmt.Printf("| %s | %.2f | %.2f | %.2f | %.2f | %d | %d | %.0f | %.0f | %.2f | %.2f | %v |\n", name, alpha, beta, evaporation, exploration, ants, iterations, averageBestLength, knownOptimal, deviation, successRate, averageTime.Milliseconds())
 }
 
 func main() {
@@ -329,19 +338,19 @@ func main() {
 	iterations := 1000
 	numRuns := 10
 
-	fmt.Println("| Instance | Alpha | Beta | Evaporation | Exploration | Ants | Iterations | Average Result | Known Optimal | Deviation (%) | Time (ms) |")
+	fmt.Println("| Instance | Alpha | Beta | Evaporation | Exploration | Ants | Iterations | Average Result | Known Optimal | Deviation (%) | Success rate (%) | Time (ms) |")
 	fmt.Println("|-|-|-|-|-|-|-|-|-|-|-|")
 
 	for _, file := range files {
 
-		if !strings.Contains(file, "170") {
+		if !strings.Contains(file, "ft53") {
 			continue
 		}
 
-		for _, alpha := range generateRange(0.5, 3.0, 0.25) {
-			for _, beta := range generateRange(2.0, 5.0, 0.25) {
-				for _, evaporation := range generateRange(0.2, 0.8, 0.1) {
-					for _, exploration := range generateRange(2.0, 10.0, 1.0) {
+		for _, alpha := range generateRange(1.0, 1.0, 0.5) {
+			for _, beta := range generateRange(2.0, 5.0, 0.5) {
+				for _, evaporation := range generateRange(0.5, 0.8, 0.1) {
+					for _, exploration := range generateRange(10.0, 10.0, 1.0) {
 						runExperiment(file, iterations, numRuns, alpha, beta, evaporation, exploration)
 					}
 				}
@@ -349,5 +358,6 @@ func main() {
 		}
 	}
 
-	//fmt.Printf("\nBest Parameters: Alpha: %.2f, Beta: %.2f, Evaporation: %.2f, Exploration: %.2f, Best Length: %.0f, Deviation: %.2f%%\n", bestParams.alpha, bestParams.beta, bestParams.evaporation, bestParams.exploration, bestParams.length, bestParams.deviation)
+	fmt.Printf("\nBest Parameters: Alpha: %.2f, Beta: %.2f, Evaporation: %.2f, Exploration: %.2f, Best Length: %.0f, Deviation: %.2f%%, Success rate: %.2f%%\n",
+		bestParams.alpha, bestParams.beta, bestParams.evaporation, bestParams.exploration, bestParams.length, bestParams.deviation, bestParams.successRate)
 }

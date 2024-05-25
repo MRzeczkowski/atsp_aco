@@ -253,48 +253,64 @@ var bestParams struct {
 	deviation                             float64
 }
 
-func runExperiment(files []string, alpha, beta, evaporation, exploration float64, optimalSolutions map[string]float64) {
-	for _, file := range files {
-		name, dimension, matrix, err := parsing.ParseTSPLIBFile(file)
-		if err != nil {
-			fmt.Println("Error parsing file:", file, err)
-			continue
-		}
+var optimalSolutions = map[string]float64{
+	"br17":   39,
+	"ft53":   6905,
+	"ft70":   38673,
+	"ftv33":  1286,
+	"ftv35":  1473,
+	"ftv38":  1530,
+	"ftv44":  1613,
+	"ftv47":  1776,
+	"ftv55":  1608,
+	"ftv64":  1839,
+	"ftv70":  1950,
+	"ftv170": 2755,
+	"p43":    5620,
+	"rbg323": 1326,
+	"rbg358": 1163,
+	"rbg403": 2465,
+	"rbg443": 2720,
+	"ry48p":  14422,
+}
 
-		if strings.Contains(name, "rbg443") {
-			var totalBestLength float64
-			var totalElapsedTime time.Duration
+func runExperiment(file string, iterations, numRuns int, alpha, beta, evaporation, exploration float64) {
 
-			ants := dimension
-			iterations := 1000
-			numRuns := 10
-
-			for i := 0; i < numRuns; i++ {
-				aco := NewACO(alpha, beta, evaporation, exploration, ants, iterations, matrix)
-				start := time.Now()
-				aco.Run()
-				elapsed := time.Since(start)
-
-				totalBestLength += aco.bestLength
-				totalElapsedTime += elapsed
-			}
-
-			averageBestLength := totalBestLength / float64(numRuns)
-			averageTime := totalElapsedTime / time.Duration(numRuns)
-			knownOptimal := optimalSolutions[name]
-			deviation := 100 * (averageBestLength - knownOptimal) / knownOptimal
-
-			if bestParams.length == 0 || averageBestLength < bestParams.length {
-				bestParams = struct {
-					alpha, beta, evaporation, exploration float64
-					length                                float64
-					deviation                             float64
-				}{alpha, beta, evaporation, exploration, averageBestLength, deviation}
-			}
-
-			fmt.Printf("| %s | %.2f | %.2f | %.2f | %.2f | %d | %d | %.0f | %.0f | %.2f | %v |\n", name, alpha, beta, evaporation, exploration, ants, iterations, averageBestLength, knownOptimal, deviation, averageTime.Milliseconds())
-		}
+	name, dimension, matrix, err := parsing.ParseTSPLIBFile(file)
+	if err != nil {
+		fmt.Println("Error parsing file:", file, err)
+		return
 	}
+
+	var totalBestLength float64
+	var totalElapsedTime time.Duration
+
+	ants := dimension
+
+	for i := 0; i < numRuns; i++ {
+		aco := NewACO(alpha, beta, evaporation, exploration, ants, iterations, matrix)
+		start := time.Now()
+		aco.Run()
+		elapsed := time.Since(start)
+
+		totalBestLength += aco.bestLength
+		totalElapsedTime += elapsed
+	}
+
+	averageBestLength := totalBestLength / float64(numRuns)
+	averageTime := totalElapsedTime / time.Duration(numRuns)
+	knownOptimal := optimalSolutions[name]
+	deviation := 100 * (averageBestLength - knownOptimal) / knownOptimal
+
+	if bestParams.length == 0 || averageBestLength < bestParams.length {
+		bestParams = struct {
+			alpha, beta, evaporation, exploration float64
+			length                                float64
+			deviation                             float64
+		}{alpha, beta, evaporation, exploration, averageBestLength, deviation}
+	}
+
+	fmt.Printf("| %s | %.2f | %.2f | %.2f | %.2f | %d | %d | %.0f | %.0f | %.2f | %v |\n", name, alpha, beta, evaporation, exploration, ants, iterations, averageBestLength, knownOptimal, deviation, averageTime.Milliseconds())
 }
 
 func main() {
@@ -310,39 +326,28 @@ func main() {
 		return
 	}
 
-	optimalSolutions := map[string]float64{
-		"br17":   39,
-		"ft53":   6905,
-		"ft70":   38673,
-		"ftv33":  1286,
-		"ftv35":  1473,
-		"ftv38":  1530,
-		"ftv44":  1613,
-		"ftv47":  1776,
-		"ftv55":  1608,
-		"ftv64":  1839,
-		"ftv70":  1950,
-		"ftv170": 2755,
-		"p43":    5620,
-		"rbg323": 1326,
-		"rbg358": 1163,
-		"rbg403": 2465,
-		"rbg443": 2720,
-		"ry48p":  14422,
-	}
+	iterations := 1000
+	numRuns := 10
 
 	fmt.Println("| Instance | Alpha | Beta | Evaporation | Exploration | Ants | Iterations | Average Result | Known Optimal | Deviation (%) | Time (ms) |")
 	fmt.Println("|-|-|-|-|-|-|-|-|-|-|-|")
 
-	for _, alpha := range generateRange(0.5, 3.0, 0.25) {
-		for _, beta := range generateRange(2.0, 5.0, 0.25) {
-			for _, evaporation := range generateRange(0.2, 0.8, 0.1) {
-				for _, exploration := range generateRange(2.0, 10.0, 1.0) {
-					runExperiment(files, alpha, beta, evaporation, exploration, optimalSolutions)
+	for _, file := range files {
+
+		if !strings.Contains(file, "170") {
+			continue
+		}
+
+		for _, alpha := range generateRange(0.5, 3.0, 0.25) {
+			for _, beta := range generateRange(2.0, 5.0, 0.25) {
+				for _, evaporation := range generateRange(0.2, 0.8, 0.1) {
+					for _, exploration := range generateRange(2.0, 10.0, 1.0) {
+						runExperiment(file, iterations, numRuns, alpha, beta, evaporation, exploration)
+					}
 				}
 			}
 		}
 	}
 
-	fmt.Printf("\nBest Parameters: Alpha: %.2f, Beta: %.2f, Evaporation: %.2f, Exploration: %.2f, Best Length: %.0f, Deviation: %.2f%%\n", bestParams.alpha, bestParams.beta, bestParams.evaporation, bestParams.exploration, bestParams.length, bestParams.deviation)
+	//fmt.Printf("\nBest Parameters: Alpha: %.2f, Beta: %.2f, Evaporation: %.2f, Exploration: %.2f, Best Length: %.0f, Deviation: %.2f%%\n", bestParams.alpha, bestParams.beta, bestParams.evaporation, bestParams.exploration, bestParams.length, bestParams.deviation)
 }

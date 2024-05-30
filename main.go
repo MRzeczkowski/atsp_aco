@@ -16,17 +16,17 @@ import (
 )
 
 type ACO struct {
-	alpha, beta, evaporation                float64
-	minPheromone, maxPheromone, exploration float64
-	ants, iterations, currentIteration      int
-	distances, pheromone                    [][]float64
-	msas                                    [][][]float64
-	bestLength                              float64
-	bestPath                                []int
+	alpha, beta, evaporation                            float64
+	minPheromone, maxPheromone, exploration, q          float64
+	ants, iterations, currentIteration, bestAtIteration int
+	distances, pheromone                                [][]float64
+	cmsa                                                [][]float64
+	bestLength                                          float64
+	bestPath                                            []int
 }
 
 // NewACO initializes a new ACO instance with initial pheromone levels set to an estimated best value
-func NewACO(alpha, beta, evaporation, exploration float64, ants, iterations int, distances [][]float64, msas [][][]float64) *ACO {
+func NewACO(alpha, beta, evaporation, exploration, q float64, ants, iterations int, distances, cmsa [][]float64) *ACO {
 	dimension := len(distances)
 	pheromone := make([][]float64, dimension)
 	initialPheromone := 1.0
@@ -41,15 +41,16 @@ func NewACO(alpha, beta, evaporation, exploration float64, ants, iterations int,
 		alpha:        alpha,
 		beta:         beta,
 		evaporation:  evaporation,
+		exploration:  exploration,
+		q:            q,
 		ants:         ants,
 		iterations:   iterations,
 		distances:    distances,
-		msas:         msas,
+		cmsa:         cmsa,
 		pheromone:    pheromone,
 		bestLength:   math.Inf(1),
 		maxPheromone: initialPheromone,
 		minPheromone: initialPheromone / (exploration * float64(ants)),
-		exploration:  exploration,
 	}
 }
 
@@ -100,6 +101,7 @@ func (aco *ACO) constructPath(antNumber int) ([]int, float64) {
 	if length < aco.bestLength {
 		aco.bestLength = length
 		aco.bestPath = append([]int(nil), path...)
+		aco.bestAtIteration = aco.currentIteration
 	}
 
 	return path, length
@@ -158,18 +160,18 @@ func (aco *ACO) selectNextCity(antNumber, current int, visited []bool) int {
 	total := 0.0
 
 	// This should make ants use better paths in the beginning.
-	// https://ieeexplore.ieee.org/document/5522700
-	// adaptiveMstProbability := 0.5 * (1.0 - float64(aco.currentIteration)/float64(aco.iterations))
-	// if rand.Float64() < adaptiveMstProbability {
-	// 	for i := 0; i < dimension; i++ {
-	// 		if aco.msas[antNumber][current][i] == 1 && !visited[i] {
-	// 			return i
-	// 		}
-	// 	}
-	// }
+	adaptiveMstProbability := aco.q * (1.0 - float64(aco.currentIteration)/float64(aco.iterations))
+	if rand.Float64() < adaptiveMstProbability {
+		for i := 0; i < dimension; i++ {
+			if !visited[i] && aco.cmsa[current][i] > 0 {
+				probabilities[i] = aco.cmsa[current][i]
+				total += probabilities[i]
+			}
+		}
+	}
 
 	for i := 0; i < dimension; i++ {
-		if !visited[i] {
+		if !visited[i] && probabilities[i] == 0 {
 			pheromone := pow(aco.pheromone[current][i], aco.alpha)
 			invDistance := 1.0 / float64(aco.distances[current][i])
 			desirability := pow(invDistance, aco.beta)
@@ -180,7 +182,7 @@ func (aco *ACO) selectNextCity(antNumber, current int, visited []bool) int {
 
 	r := rand.Float64()
 	for i, cumulativeProbability := 0, 0.0; i < dimension; i++ {
-		if !visited[i] {
+		if !visited[i] && probabilities[i] > 0.0 {
 			probabilities[i] /= total
 			cumulativeProbability += probabilities[i]
 			if r < cumulativeProbability || math.IsNaN(probabilities[i]) {
@@ -263,12 +265,12 @@ func generateRange(start, end, step float64) []float64 {
 }
 
 var bestParams struct {
-	alpha, beta, evaporation, exploration float64
-	averageLength                         float64
-	bestLength                            float64
-	bestPath                              []int
-	deviation                             float64
-	successRate                           float64
+	alpha, beta, evaporation, exploration, q float64
+	averageLength                            float64
+	bestLength                               float64
+	bestPath                                 []int
+	deviation                                float64
+	successRate                              float64
 }
 
 var optimalSolutions = map[string]float64{
@@ -484,7 +486,7 @@ func convertToMatrix(edges []Edge, size int) [][]float64 {
 	return matrix
 }
 
-func runExperiment(file string, iterations, numRuns int, alpha, beta, evaporation, exploration float64) {
+func runExperiment(file string, iterations, numRuns int, alpha, beta, evaporation, exploration, q float64) {
 
 	name, dimension, matrix, err := parsing.ParseTSPLIBFile(file)
 	if err != nil {
@@ -492,17 +494,71 @@ func runExperiment(file string, iterations, numRuns int, alpha, beta, evaporatio
 		return
 	}
 
+	// https://sci-hub.se/10.1109/ICICTA.2010.731
+	// "If the number of cities is less than 50, t_max=100; if it is between 50 and 100, t_max=500; and if the problem has more than 100 cities, t_max is set to 5000."
+	if dimension < 50 {
+		iterations = 100
+	}
+
+	if 50 <= dimension && dimension < 100 {
+		iterations = 500
+	}
+
+	if dimension >= 100 {
+		iterations = 1000
+	}
+
 	vertices, edges, weights := convertToEdges(matrix)
 
-	msas := make([][][]float64, dimension)
+	cmsa := make([][]float64, dimension)
+	for i := range dimension {
+		cmsa[i] = make([]float64, dimension)
+	}
+
+	msas := make([][]Edge, dimension)
+	ocurrance := make(map[Edge]float64)
+	lengths := make([]float64, dimension)
 
 	for i := 0; i < dimension; i++ {
+
 		msa := findMSA(vertices, edges, i, weights)
 
-		msaMatrix := convertToMatrix(msa, dimension)
+		msas[i] = msa
 
-		msas[i] = msaMatrix
+		for _, edge := range msa {
+			ocurrance[edge]++
+			lengths[i] += weights[edge]
+		}
 	}
+
+	// for i, msa := range msas {
+	// 	for _, edge := range msa {
+	// 		cmsa[edge.from][edge.to] += pow(1/weights[edge], 5)
+	// 		cmsa[edge.from][edge.to] += pow(1/lengths[i], 5)
+	// 	}
+	// }
+
+	for _, msa := range msas {
+		for _, edge := range msa {
+			//cmsa[edge.from][edge.to] /= ocurrance[edge]
+			cmsa[edge.from][edge.to] = pow(ocurrance[edge], 1)
+		}
+	}
+
+	// for i := 0; i < dimension; i++ {
+
+	// 	sum := 0.0
+
+	// 	for j := 0; j < dimension; j++ {
+	// 		sum += cmsa[i][j]
+	// 	}
+
+	// 	for j := 0; j < dimension; j++ {
+	// 		cmsa[i][j] /= sum
+	// 	}
+
+	// 	//fmt.Println(cmsa[i])
+	// }
 
 	var totalBestLength float64
 	var totalElapsedTime time.Duration
@@ -510,13 +566,14 @@ func runExperiment(file string, iterations, numRuns int, alpha, beta, evaporatio
 	bestLength := math.MaxFloat64
 	var bestPath []int
 	successCounter := 0.0
+	bestAtIteration := 0
 
 	knownOptimal := optimalSolutions[name]
 
 	ants := dimension
 
 	for i := 0; i < numRuns; i++ {
-		aco := NewACO(alpha, beta, evaporation, exploration, ants, iterations, matrix, msas)
+		aco := NewACO(alpha, beta, evaporation, exploration, q, ants, iterations, matrix, cmsa)
 		start := time.Now()
 		aco.Run()
 		elapsed := time.Since(start)
@@ -527,6 +584,7 @@ func runExperiment(file string, iterations, numRuns int, alpha, beta, evaporatio
 		if aco.bestLength < bestLength {
 			bestLength = aco.bestLength
 			bestPath = aco.bestPath
+			bestAtIteration = aco.bestAtIteration
 		}
 
 		if aco.bestLength == knownOptimal {
@@ -537,60 +595,40 @@ func runExperiment(file string, iterations, numRuns int, alpha, beta, evaporatio
 	averageBestLength := totalBestLength / float64(numRuns)
 	averageTime := totalElapsedTime / time.Duration(numRuns)
 	deviation := 100 * (averageBestLength - knownOptimal) / knownOptimal
-	successRate := successCounter / float64(numRuns)
+	successRate := 100 * successCounter / float64(numRuns)
 
 	bestPathEdges := make([]Edge, len(bestPath))
 
-	bestPath = []int{49, 52, 50, 48, 29, 28, 25, 27, 26, 3, 13, 11, 10, 12, 14, 41, 47, 42, 46, 43, 45, 44, 34, 32, 33, 31, 30, 0, 4, 2, 17, 16, 15, 37, 39, 38, 36, 35, 40, 21, 20, 24, 23, 22, 19, 18, 1, 8, 9, 7, 6, 5, 51}
-
-	for i := 0; i < dimension; i++ {
-		bestPathEdges[i] = Edge{from: bestPath[i], to: bestPath[(i+1)%dimension]}
+	for i := 0; i < dimension-1; i++ {
+		bestPathEdges[i] = Edge{from: bestPath[i], to: bestPath[i+1]}
 	}
 
-	bestPathMatrix := convertToMatrix(bestPathEdges, dimension)
+	last, first := bestPath[dimension-1], bestPath[0]
+	bestPathEdges[last] = Edge{from: bestPath[last], to: bestPath[first]}
 
-	commonalityWithMsa := 0.0
+	commonalityWithCmsa := 0.0
 
-	//msaToCompare := msas[bestPath[0]]
-
-	combinedMsas := make([][]float64, dimension)
-	for i := range matrix {
-		combinedMsas[i] = make([]float64, dimension)
-	}
-
-	for _, msa := range msas {
-		for i := range dimension {
-			for j := range dimension {
-				if msa[i][j] == 1 {
-					combinedMsas[i][j] = 1
-				}
-			}
+	for _, edge := range bestPathEdges {
+		if cmsa[edge.from][edge.to] > 0 {
+			commonalityWithCmsa++
 		}
 	}
 
-	for i := 0; i < dimension; i++ {
-		for j := 0; j < dimension; j++ {
-			if bestPathMatrix[i][j] == 1 && combinedMsas[i][j] == 1 {
-				commonalityWithMsa++
-			}
-		}
-	}
-
-	commonalityWithMsa /= float64(dimension)
+	commonalityWithCmsa = 100 * commonalityWithCmsa / float64(dimension-1)
 
 	if bestParams.averageLength == 0 || averageBestLength < bestParams.averageLength {
 		bestParams = struct {
-			alpha, beta, evaporation, exploration float64
-			averageLength                         float64
-			bestLength                            float64
-			bestPath                              []int
-			deviation                             float64
-			successRate                           float64
-		}{alpha, beta, evaporation, exploration, averageBestLength, bestLength, bestPath, deviation, successRate}
+			alpha, beta, evaporation, exploration, q float64
+			averageLength                            float64
+			bestLength                               float64
+			bestPath                                 []int
+			deviation                                float64
+			successRate                              float64
+		}{alpha, beta, evaporation, exploration, q, averageBestLength, bestLength, bestPath, deviation, successRate}
 	}
 
-	fmt.Printf("| %s | %.2f | %.2f | %.2f | %.2f | %d | %d | %.0f | %.0f | %.0f | %.2f | %.2f | %.2f | %v |\n",
-		name, alpha, beta, evaporation, exploration, ants, iterations, averageBestLength, bestLength, knownOptimal, deviation, successRate, commonalityWithMsa, averageTime.Milliseconds())
+	fmt.Printf("| %s | %.2f | %.2f | %.2f | %.2f | %.2f | %d | %d | %.0f | %.0f | %d | %.0f | %.2f | %.2f | %.2f | %v |\n",
+		name, alpha, beta, evaporation, exploration, q, ants, iterations, averageBestLength, bestLength, bestAtIteration, knownOptimal, deviation, successRate, commonalityWithCmsa, averageTime.Milliseconds())
 }
 
 func main() {
@@ -606,34 +644,51 @@ func main() {
 		return
 	}
 
-	iterations := 500
-	numRuns := 50
-
-	fmt.Println("| Instance | Alpha | Beta | Evaporation | Exploration | Ants | Iterations | Average Result | Best found | Known Optimal | Deviation (%) | Success rate (%) | Commonality with MSA (%) | Time (ms) |")
-	fmt.Println("|-|-|-|-|-|-|-|-|-|-|-|")
+	iterations := 100
+	numRuns := 100
 
 	for _, file := range files {
 
-		if !strings.Contains(file, "ft53") {
+		if !strings.Contains(file, "ftv3") {
 			continue
 		}
+
+		fmt.Println("| Instance | Alpha | Beta | Evaporation | Exploration | q | Ants | Iterations | Average Result | Best found | Best found at iteration | Known Optimal | Deviation (%) | Success rate (%) | Commonality with CMSA (%) | Time (ms) |")
+		fmt.Println("|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|")
 
 		for _, alpha := range generateRange(1.0, 1.0, 0.5) {
 			for _, beta := range generateRange(5.0, 5.0, 0.5) {
 				for _, evaporation := range generateRange(0.8, 0.8, 0.1) {
 					for _, exploration := range generateRange(10.0, 10.0, 1.0) {
-						runExperiment(file, iterations, numRuns, alpha, beta, evaporation, exploration)
+						for _, q := range generateRange(1.0, 1.0, 0.25) {
+							runExperiment(file, iterations, numRuns, alpha, beta, evaporation, exploration, q)
+						}
 					}
 				}
 			}
 		}
+
+		fmt.Printf("\nBest parameters:")
+		fmt.Printf("\n - Alpha: %.2f", bestParams.alpha)
+		fmt.Printf("\n - Beta: %.2f", bestParams.beta)
+		fmt.Printf("\n - Evaporation: %.2f", bestParams.evaporation)
+		fmt.Printf("\n - Exploration: %.2f", bestParams.exploration)
+		fmt.Printf("\n - q: %.2f", bestParams.q)
+		fmt.Printf("\n - Average length: %.0f", bestParams.averageLength)
+		fmt.Printf("\n - Deviation: %.2f", bestParams.deviation)
+		fmt.Printf("\n - Success rate: %.2f", bestParams.successRate)
+
+		fmt.Println()
+
+		fmt.Println("\nBest path:")
+		for _, v := range bestParams.bestPath {
+			fmt.Print(v, " ")
+		}
+
+		fmt.Println()
+		fmt.Println()
+
+		bestParams.averageLength = 0.0
 	}
 
-	fmt.Printf("\nBest parameters: Alpha: %.2f, Beta: %.2f, Evaporation: %.2f, Exploration: %.2f, Best average length: %.0f, Deviation: %.2f%%, Success rate: %.2f%%\n",
-		bestParams.alpha, bestParams.beta, bestParams.evaporation, bestParams.exploration, bestParams.averageLength, bestParams.deviation, bestParams.successRate)
-
-	fmt.Println("Best path:")
-	for _, v := range bestParams.bestPath {
-		fmt.Print(v, " ")
-	}
 }

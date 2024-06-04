@@ -545,20 +545,20 @@ func runExperiment(file string, iterations, numRuns int, alpha, beta, evaporatio
 		}
 	}
 
-	// for i := 0; i < dimension; i++ {
+	for i := 0; i < dimension; i++ {
 
-	// 	sum := 0.0
+		// sum := 0.0
 
-	// 	for j := 0; j < dimension; j++ {
-	// 		sum += cmsa[i][j]
-	// 	}
+		// for j := 0; j < dimension; j++ {
+		// 	sum += cmsa[i][j]
+		// }
 
-	// 	for j := 0; j < dimension; j++ {
-	// 		cmsa[i][j] /= sum
-	// 	}
+		// for j := 0; j < dimension; j++ {
+		// 	cmsa[i][j] /= sum
+		// }
 
-	// 	//fmt.Println(cmsa[i])
-	// }
+		fmt.Println(cmsa[i])
+	}
 
 	var totalBestLength float64
 	var totalElapsedTime time.Duration
@@ -645,7 +645,7 @@ func main() {
 	}
 
 	iterations := 100
-	numRuns := 100
+	numRuns := 1000
 
 	for _, file := range files {
 
@@ -660,7 +660,7 @@ func main() {
 			for _, beta := range generateRange(5.0, 5.0, 0.5) {
 				for _, evaporation := range generateRange(0.8, 0.8, 0.1) {
 					for _, exploration := range generateRange(10.0, 10.0, 1.0) {
-						for _, q := range generateRange(1.0, 1.0, 0.25) {
+						for _, q := range generateRange(0.0, 1.0, 0.25) {
 							runExperiment(file, iterations, numRuns, alpha, beta, evaporation, exploration, q)
 						}
 					}

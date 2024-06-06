@@ -22,7 +22,6 @@ type ACO struct {
 	bestPath                                            []int
 }
 
-// NewACO initializes a new ACO instance with initial pheromone levels set to an estimated best value
 func NewACO(alpha, beta, evaporation, exploration float64, ants, iterations int, distances [][]float64) *ACO {
 	dimension := len(distances)
 	pheromone := make([][]float64, dimension)
@@ -64,7 +63,7 @@ func (aco *ACO) Run() {
 		}
 		wg.Wait()
 
-		aco.updatePheromoneLevels() // Recalculate pheromone limits based on the new best solution
+		aco.updatePheromoneLevels()
 		aco.updatePheromone(paths, lengths)
 	}
 }
@@ -179,7 +178,7 @@ func (aco *ACO) selectNextCity(current int, visited []bool) int {
 }
 
 func (aco *ACO) updatePheromone(paths [][]int, lengths []float64) {
-	// Find the best path of this iteration
+
 	bestIdx := 0
 	for i := 1; i < len(lengths); i++ {
 		if lengths[i] < lengths[bestIdx] {
@@ -187,21 +186,19 @@ func (aco *ACO) updatePheromone(paths [][]int, lengths []float64) {
 		}
 	}
 
-	// Evaporate pheromone first
 	for i := range aco.pheromone {
 		for j := range aco.pheromone[i] {
 			aco.pheromone[i][j] *= (1 - aco.evaporation)
-			aco.pheromone[i][j] = math.Max(aco.pheromone[i][j], aco.minPheromone) // Enforce minimum pheromone level
+			aco.pheromone[i][j] = math.Max(aco.pheromone[i][j], aco.minPheromone)
 		}
 	}
 
-	// Strengthen pheromone trail for the best ant's path
 	path := paths[bestIdx]
 	delta := 1.0 / lengths[bestIdx]
 	for i := 0; i < len(path)-1; i++ {
 		start, end := path[i], path[i+1]
 		aco.pheromone[start][end] += delta
-		aco.pheromone[start][end] = math.Min(aco.pheromone[start][end], aco.maxPheromone) // Enforce maximum pheromone level
+		aco.pheromone[start][end] = math.Min(aco.pheromone[start][end], aco.maxPheromone)
 	}
 
 	if len(path) > 0 {
@@ -259,7 +256,7 @@ var bestParams struct {
 
 var optimalSolutions = map[string]float64{
 	"br17":   39,
-	"ft53":   6905, // [49,52,50,48,29,28,25,27,26,3,13,11,10,12,14,41,47,42,46,43,45,44,34,32,33,31,30,0,4,2,17,16,15,37,39,38,36,35,40,21,20,24,23,22,19,18,1,8,9,7,6,5,51]
+	"ft53":   6905,
 	"ft70":   38673,
 	"ftv33":  1286,
 	"ftv35":  1473,
@@ -398,5 +395,4 @@ func main() {
 
 		bestParams.averageLength = 0.0
 	}
-
 }

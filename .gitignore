@@ -24,4 +24,3 @@ tsp_files/*
 .DS_Store
 aco.prof
 atsp_aco
-output.txt

@@ -1,9 +1,3 @@
-# ATSP MMAS
-
-
-## Results
-Below is the output of the program testing various parameter values for `Alpha`, `Beta`, `Evaporation` and `Exploration`:
-
 | Instance | Alpha | Beta | Evaporation | Exploration | Ants | Iterations | Average Result | Best found | Best found at iteration | Known Optimal | Deviation (%) | Success rate (%) |
 |-|-|-|-|-|-|-|-|-|-|-|-|-|
 | ftv170 | 0.75 | 3.00 | 0.50 | 8.00 | 171 | 1000 | 2854 | 2790 | 342 | 2755 | 3.61 | 0.00 |

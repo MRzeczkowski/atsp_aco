@@ -1,8 +1,72 @@
-# ATSP MMAS
+# Max-Min Ant System for Asymmetric Traveling Salesman Problem
 
+## Overview
+This project is and implementation of the Max-Min Ant System (MMAS), an optimization algorithm derived from the Ant Colony Optimization (ACO) metaheuristic.
+MMSA is used in this project to solve the Asymmetric Traveling Salesman Problem (ATSP). It seems to fair better than the classic ACO that was used in this project previously.
+
+MMAS focuses on enhancing solution quality by intensifying search around promising areas while preserving solution diversity. The approach is grounded in strengthening pheromone trails associated with the most promising solutions, which theoretically guides subsequent searches towards globally optimal solutions.
+
+## Features
+- **Dynamic Pheromone Update Mechanism**: Implements constraints on pheromone concentrations, setting minimum and maximum bounds to prevent premature convergence on suboptimal solutions and to sustain exploration capabilities throughout the search process.
+- **Adaptive Parameter Tuning**: Employs a systematic exploration of parameter spaces for `Alpha` (influence of pheromone trails), `Beta` (influence of heuristic information), `Evaporation` (rate of decreasing pheromone levels), and `Exploration` (increases exploratory aspect by decreasing the minimum bound of pheromone level) to optimize the performance of the algorithm across different problem instances.
+
+## Algorithmic Framework
+The Max-Min Ant System introduces modifications to the traditional pheromone updating rules used in ACO algorithms by focusing on the following two key mechanisms:
+1. **Limited pheromone evaporation**: At each iteration, pheromone values on all paths are reduced by a predetermined evaporation rate, simulating the natural decay of pheromone trails over time and preventing unbounded growth of pheromone values. The pheromone value cannot be lower than a lower bound.
+2. **Elitist pheromone reinforcement**: Exclusively reinforces pheromone trails that are part of the best solution found, thereby directing the search towards regions of the search space that are likely to contain near-optimal or optimal solutions. The pheromone concentration on these paths is subject to an upper bound.
+
+`maxPheromone` and `minPheromone` bounds help in maintaining a balance between exploration of new areas and exploitation of known good solutions.
+
+## Methodology
+### Test data
+Part of the [TSPLib](http://comopt.ifi.uni-heidelberg.de/software/TSPLIB95/atsp/) problem set is used and since it also provides optimal solutions for each graph we can calculate the quality of calculated results. By default the `ftv170` graph is used.
+
+### Initialization
+The algorithm initializes pheromone trails to a value of 1.0, allowing equal initial exploration probability across all edges in the ATSP instance.
+
+`Alpha`, `Beta`, `Evaporation` and `Exploration` parameter values are varied with the following scheme:
+| Parameter | Start value | End value | Step |
+|-|-|-|-|
+| `Alpha` | 0.75 | 1.25 | 0.25 |
+| `Beta` | 3.0 | 5.0 | 1.0 |
+| `Evaporation` | 0.5 | 0.8 | 0.1 |
+| `Exploration` | 8.0 | 10.0 | 1.0 |
+
+For each set of values 10 runs of the algorithm are performed and following metrics are returned as the average from those runs: `Average Result`, `Deviation` and `Success rate`.
+`Deviation` shows how close is the `Average Result` to the optimal solution provided by TSPLib.
+
+The amount of iterations performed by the MMAS is dependant on the size of the problem. Below is the logic that determines the amount of iterations:
+```
+if size < 50 {
+	iterations = 100
+}
+
+if 50 <= size && size < 100 {
+	iterations = 500
+}
+
+if size >= 100 {
+	iterations = 1000
+}
+```
+
+### Construction of Solutions
+Ants construct solutions by probabilistically selecting the next city to visit based on a combination of pheromone intensity and heuristic desirability (inverse of travel cost). This process is repeated until all cities are visited.
+
+### Pheromone Update
+After all ants have constructed their tours, pheromone levels are updated according to the quality of the solutions found. Only the best-performing ant contributes to the pheromone update, enhancing trails associated with more promising solutions.
+
+### Parameter Adaptation
+The algorithm adaptively adjusts the pheromone bounds based on the quality of solutions found, which is designed to dynamically tailor the search intensity and exploration extent as needed.
+
+These values are calculated in accordance to this formula and changed before updating pheromone levels:
+```
+maxPheromone = 1.0 / ((1 - evaporation) * bestPathLength)
+minPheromone = maxPheromone / (exploration * numberOfAnts)
+```
 
 ## Results
-Below is the output of the program testing various parameter values for `Alpha`, `Beta`, `Evaporation` and `Exploration`:
+Below is the output of the program testing various parameter values for `Alpha`, `Beta`, `Evaporation` and `Exploration` for the `ftv170` graph:
 
 | Instance | Alpha | Beta | Evaporation | Exploration | Ants | Iterations | Average Result | Best found | Best found at iteration | Known Optimal | Deviation (%) | Success rate (%) |
 |-|-|-|-|-|-|-|-|-|-|-|-|-|
@@ -123,3 +187,21 @@ Best parameters:
  - Average length: 2833
  - Deviation: 2.83
  - Success rate: 0.00
+
+### Analysis
+
+Best configuration achieved the best balance between exploration and exploitation among the tested settings, resulting in the lowest deviation from the optimal path length.
+
+Parameter Impact:
+ - `Alpha` (Pheromone Importance): A lower alpha (0.75) appears to yield better results in several configurations, suggesting that less emphasis on pheromone strength (more on heuristic information) helps in this scenario.
+ - `Beta` (Heuristic Information Importance): Increasing beta generally improves performance, with beta = 4.00 providing the best results. This indicates a higher reliance on heuristic information (inverse of distance) is beneficial for this problem.
+ - `Evaporation`: A lower evaporation rate (0.50) has shown better performance, potentially because it maintains useful pheromone trails longer, aiding in the convergence to good solutions.
+ - `Exploration`: An exploration factor of 8.00 gave the best results, striking a balance between exploring new paths and exploiting known good paths.
+
+
+All configurations report a 0.00% success rate, indicating that none of the runs achieved the known optimal path length. This highlights a potential area for further tuning or the need for algorithmic enhancements.
+
+The deviation from the optimal varies significantly across different settings, suggesting sensitivity to parameter changes. Some configurations, particularly those with higher evaporation rates and exploration factors, lead to poorer performance, possibly due to excessive exploration or too rapid loss of pheromone information.
+
+## Conclusion
+The MMAS represents a robust approach to solving the ATSP, characterized by its ability to dynamically adjust search strategies in response to the evolving landscape of solution quality. Future work may explore hybrid strategies combining MMAS with other heuristic or exact methods to further enhance its performance on complex ATSP instances.
